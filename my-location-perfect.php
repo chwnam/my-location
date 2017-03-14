@@ -68,9 +68,6 @@ function my_loc_add_admin_menu() {
 		'manage_options',
 		'my_location_submenu',
 		'__return_empty_string'
-		//function() {
-		//	print_r( map_meta_cap( 'edit_post', get_current_user_id(), 20157 ) );
-		//}
 	);
 	add_action( 'load-' . $menu_hook, 'my_loc_add_help_tab' );
 }
@@ -130,9 +127,10 @@ add_action( 'admin_enqueue_scripts', 'my_loc_enqueue_scripts' );
 
 /** action: admin_enqueue_scripts */
 function my_loc_enqueue_scripts() {
-	$api_key = 'AIzaSyDRxm9pF0C8AHQKvGSVEdmIYgVFSpIknaE';
+	$api_key = 'AIzaSyDRxm9pF0C8AHQKvGSVEdmIYgVFSpIknaE';   // 구글맵 API 키
 	wp_register_script( 'google-map-handle', "https://maps.googleapis.com/maps/api/js?key={$api_key}&sensor=false" );
 	wp_register_script( 'my-location-script-handle', plugins_url( 'statics/js/my-location.js' , __FILE__  ), array( 'jquery', 'google-map-handle' ), NULL, FALSE );
+	// wp_add_inline_style( 'admin-menu', 'input#post-query-submit {display: none;}' );
 }
 
 /** 포스트 저장 전 필요한 행동을 추가적으로 정의하기 위한 훅입니다. */
@@ -367,7 +365,6 @@ function my_loc_views_edit( $views ) {
 	// 아래 WP_Query 생성 시 의도치 않은 콜백이 동작하게 된다.
 	if( has_action( 'parse_query', 'my_loc_parse_query' ) ) {
 		remove_action( 'parse_query', 'my_loc_parse_query' );
-		remove_action( 'parse_tax_query', 'my_loc_tax_query_edit' );
 	}
 
 	$args['meta_query'][0]['value'] = array(7.5, 10);
@@ -381,6 +378,8 @@ function my_loc_views_edit( $views ) {
 	$args['meta_query'][0]['value'] = array(0, 3.5);
 	$low = new WP_Query( $args );
 	$views['rating-low'] = sprintf( $format, $admin_url, 'rating-low', __( 'low rated', 'my-location' ), $low->found_posts );
+
+	add_action( 'parse_query', 'my_loc_parse_query' );
 
 	return $views;
 }
@@ -428,27 +427,6 @@ function my_loc_parse_query( $query ) {
 		$query->set( 'post_status', 'publish' );
 		$query->set( 'meta_query', $args );
 	}
-
-	// 카테고리 필터 적용하는 부분
-	if( $pagenow == 'edit.php' &&
-	    isset( $_GET['post_type'] ) && $_GET['post_type'] == 'my-location' &&
-	    isset( $_GET['place-category'] ) ) {
-
-		$term_id = intval( $_GET['place-category'] );
-		$query->set( 'tax_query', array(
-			'terms'    => $term_id,
-			'taxonomy' => 'place-category',
-			// 'field'    => 'term_id',  // 이 부분은 주석 풀어줘 봐야 wp-includes/query.php WP_Query::parse_tax_query()
-			//                           // 부분에서 이해하지 못한다. 아래 parse_tax_query action 부분에서 강제로 변경해야 함.
-		));
-
-		// field 파라미터를 term_id로 강제 변경.
-		add_action( 'parse_tax_query', 'my_loc_tax_query_edit' );
-	}
-}
-
-function my_loc_tax_query_edit( $query ) {
-	$query->tax_query->queries[0]['field'] = 'term_id';
 }
 
 /**
@@ -463,33 +441,19 @@ function my_loc_restrict_manage_posts() {
 
 	if( isset( $_GET['post_type'] ) && $_GET['post_type'] == 'my-location' ) {
 
-		$term = get_term_by( 'id', $_GET['place-category'], 'place-category' );
+		$term = get_term_by( 'slug', $_GET['place-category'], 'place-category' );
 
 		wp_dropdown_categories(
 			array(
 				'show_option_all'   => __( 'All places', 'my-location' ),
 				'taxonomy'          => 'place-category',
 				'show_count'        => 1,
-				'selected'          => $term->term_id,
+				'selected'          => $term->slug,
 				'hierarchical'      => TRUE,
 				'name'              => 'place-category',
-				'value_field'       => 'term_id',
+				'value_field'       => 'slug',
 			)
 		);
-
-//		$term = get_term_by( 'slug', $_GET['place-category'], 'place-category' );
-//
-//		wp_dropdown_categories(
-//			array(
-//				'show_option_all'   => __( 'All places', 'my-location' ),
-//				'taxonomy'          => 'place-category',
-//				'show_count'        => 1,
-//				'selected'          => $term->slug,
-//				'hierarchical'      => TRUE,
-//				'name'              => 'place-category',
-//				'value_field'       => 'slug',
-//			)
-//		);
 	}
 }
 
@@ -524,9 +488,30 @@ function my_loc_post_row_action(  $actions, $post ) {
 /**
  * 일괄 작업 부분을 수정합니다.
  */
-// add_filter( 'bulk_actions-edit-my-location', function() { return array(); }, 10, 0 );
+add_filter( 'bulk_actions-edit-my-location', function( $s ) {
+	$s['my-location'] = 'My Location';
+	return $s;
+}, 10, 0 );
 
 /**
  * 모든 날짜 필터 부분을 수정합니다.
  */
-// add_filter( 'months_dropdown_results', function() { return array(); }, 10, 0 );
+add_filter( 'months_dropdown_results', function( $s, $post_type ) {
+
+	if( $post_type == 'my-location' ) {
+
+		$march = new stdClass();
+		$march->year = '2012';
+		$march->month = '01';
+
+		$feb = new stdClass();
+		$feb->year = '2017';
+		$feb->month = '02';
+
+		$s[] = $feb;
+		$s[] = $march;
+
+		return $s;
+	}
+	return array();
+}, 10, 2 );
